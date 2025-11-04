@@ -1,0 +1,417 @@
+<template>
+  <v-app>
+    <v-container class="pa-6" max-width="1200">
+      <v-row>
+<v-col>
+<h1 class="text-h5 mb-4">Tabular Soil Data Annotation</h1>
+<v-alert type="info" class="mb-6" dense>
+<ol class="pl-6">
+<li>Choose the input mode: single CSV, linked CSVs, or Excel workbook.</li>
+<li>Upload your CSV or Excel file(s).</li>
+<li>The table below lists each column in your dataset.</li>
+<li>Annotate each column with element, unit, method, and description.</li>
+<li>The <strong>data type</strong> column auto-suggests string, numeric, or date based on sample values.</li>
+<li>You can edit the data type if needed using the dropdown.</li>
+<li>Use the reset button to clear annotations.</li>
+<li>Save annotated metadata as CSV, TableSchema JSON, or CSVW JSON.</li>
+<li>Linked CSVs mode allows connecting site and observation files.</li>
+<li>Excel mode auto-detects the header row and sheet structure.</li>
+</ol>
+</v-alert>
+</v-col>
+</v-row>
+
+      <v-row class="mb-4">
+        <v-col cols="12" md="6">
+          <v-radio-group v-model="mode" row>
+            <v-radio label="Single CSV" value="single" />
+            <v-radio label="Linked CSVs" value="linked" />
+            <v-radio label="Excel workbook" value="excel" />
+          </v-radio-group>
+        </v-col>
+      </v-row>
+
+      <v-row>
+        <v-col cols="12" md="6" v-if="mode==='single'">
+          <v-file-input accept=".csv,text/csv" label="Upload CSV" @change="onSingleCSV" prepend-icon="mdi-file-upload" />
+        </v-col>
+
+        <v-col cols="12" md="6" v-if="mode==='linked'">
+          <v-file-input accept=".csv" label="Site CSV (locations)" @change="onSiteCSV" prepend-icon="mdi-database" />
+          <v-file-input accept=".csv" label="Concentration CSV" @change="onConcCSV" prepend-icon="mdi-database" class="mt-3" />
+
+          <v-row v-if="siteHeaders.length && concHeaders.length" class="mt-3">
+            <v-col cols="6">
+              <v-select :items="siteHeaders" v-model="siteIdCol" label="Site ID column (site CSV)" dense class="pa-0" />
+            </v-col>
+            <v-col cols="6">
+              <v-select :items="concHeaders" v-model="concIdCol" label="Conc ID column (conc CSV)" dense class="pa-0" />
+            </v-col>
+          </v-row>
+        </v-col>
+
+        <v-col cols="12" md="6" v-if="mode==='excel'">
+          <v-file-input accept=".xlsx,.xls" label="Upload Excel workbook" @change="onExcel" prepend-icon="mdi-file-excel" />
+          <v-select v-if="sheets.length" :items="sheets" v-model="selectedSheet" label="Select sheet" class="mt-3 pa-0" dense />
+        </v-col>
+      </v-row>
+
+      <v-row v-if="columns.length" class="mt-6">
+        <v-col>
+          <v-card>
+            <v-toolbar flat dense>
+              <v-toolbar-title>Export</v-toolbar-title>
+              <v-spacer />
+              <v-btn color="primary" class="ml-2" @click="downloadCSVMetadata">Save CSV</v-btn>
+              <v-btn color="primary" class="ml-2" @click="downloadTableSchema">Save tableschema.json</v-btn>
+              <v-btn color="primary" class="ml-2" @click="downloadCSVW">Save CSVW JSON</v-btn>
+            </v-toolbar>
+          </v-card>
+        </v-col>
+        </v-row>
+
+        <v-row v-if="columns.length" class="mt-6">
+          <v-col>
+            <v-data-table :headers="tableHeaders" :items="columns" item-key="name" dense class="elevation-0">
+
+              <template #item.name="{ item }">
+                <div class="font-weight-medium">{{ item.name }}</div>
+              </template>
+
+              <template #item.sample="{ item }">
+                <div><small>{{ item.sample }}</small></div>
+              </template>
+
+              <template #item.datatype="{ item }">
+                <v-select
+                  :items="dataTypeOptions"
+                  v-model="item.datatype"
+                  dense
+                  hide-details
+                  class="pa-0"
+                />
+              </template>
+
+              <template #item.element="{ item }">
+                <v-autocomplete
+                  :items="elementSuggestions"
+                  v-model="item.element"
+                  dense
+                  hide-selected
+                  clearable
+                  class="pa-0"
+                  @update:model-value="() => onElementChange(item)"
+                  :menu-props="{ maxHeight: '260' }"
+                />
+              </template>
+
+              <template #item.unit="{ item }">
+                <v-autocomplete :items="unitSuggestions" v-model="item.unit" dense hide-selected clearable class="pa-0" />
+              </template>
+
+              <template #item.method="{ item }">
+                <v-autocomplete :items="methodsForColumn(item)" v-model="item.method" dense hide-selected clearable class="pa-0" />
+              </template>
+
+            </v-data-table>
+         
+        </v-col>
+      </v-row>
+
+      <v-row v-else class="mt-6">
+        <v-col>
+          <v-alert type="info">No file loaded yet.</v-alert>
+        </v-col>
+      </v-row>
+
+    </v-container>
+  </v-app>
+</template>
+
+<script>
+import { ref, reactive } from 'vue'
+import Papa from 'papaparse'
+import * as XLSX from 'xlsx'
+
+export default {
+  name: 'App',
+  setup() {
+    const mode = ref('single')
+    const columns = reactive([])
+
+    // keep the parsed data rows for datatype detection
+    const parsedRows = ref([])
+
+    const siteHeaders = ref([])
+    const concHeaders = ref([])
+    const siteIdCol = ref('')
+    const concIdCol = ref('')
+
+    const sheets = ref([])
+    const selectedSheet = ref('')
+
+    const elementSuggestions = [
+      'Nitrogen (N)', 'Phosphorus (P)', 'Potassium (K)', 'Calcium (Ca)', 'Magnesium (Mg)', 'Sulfur (S)',
+      'Organic Carbon (C)', 'Texture', 'Bulk density', 'pH', 'Electrical conductivity', 'Moisture'
+    ]
+
+    const unitSuggestions = ['mg/kg', 'ppm', '%', 'g/cm3', 'kg/m3', 'cm', 'm']
+
+    const defaultMethodList = ['Laboratory A standard', 'ISO XYZ', 'In-house method']
+    const soilMethods = ['Melich-3', 'Olsen', 'Bray-1', 'Ammonium acetate', 'DPTA']
+
+    const dataTypeOptions = ['string', 'numeric', 'date']
+
+    const tableHeaders = [
+      { text: 'Column', value: 'name', width: '220'},
+      { text: 'Sample', value: 'sample' },
+      { text: 'Data type', value: 'datatype' },
+      { text: 'Measured element', value: 'element' },
+      { text: 'Unit', value: 'unit' },
+      { text: 'Method', value: 'method' }
+    ]
+
+    function methodsForColumn(col){
+      const el = (col.element||'').toLowerCase()
+      if(!el) return defaultMethodList
+      if(/\b(p|phosphorus)\b/.test(el) || /\b(k|potassium)\b/.test(el) || /\b(ca|calcium)\b/.test(el) || /\b(mg|magnesium)\b/.test(el) || /\b(s|sulfur)\b/.test(el)){
+        return soilMethods
+      }
+      if(/carbon|c\b/.test(el)){
+        return ['Walkley-Black', 'LOI', 'Elemental analyzer']
+      }
+      return defaultMethodList
+    }
+
+    function onElementChange(col){
+      const el = (col.element||'').toLowerCase()
+      if(/\b(p|phosphorus)\b/.test(el) || /\b(k|potassium)\b/.test(el) || /\b(ca|calcium)\b/.test(el) || /\b(mg|magnesium)\b/.test(el) || /\b(s|sulfur)\b/.test(el)){
+        if(!col.unit) col.unit = 'mg/kg'
+      }
+      if(/carbon|c\b/.test(el)){
+        if(!col.unit) col.unit = '%'
+      }
+    }
+
+    function resetMetadata(){
+      columns.forEach(c=>{
+        c.element = ''
+        c.unit = ''
+        c.method = ''
+        c.description = ''
+        c.datatype = 'string'
+      })
+    }
+
+    // robust file extraction for v-file-input (Vuetify) and native inputs
+    function fileFromInput(e) {
+      if (!e) return null
+      if (e instanceof File) return e
+      if (Array.isArray(e) && e.length) return e[0]
+      if (e && e.target && e.target.files && e.target.files[0]) return e.target.files[0]
+      return null
+    }
+
+    function onSingleCSV(e){
+      const f = fileFromInput(e)
+      if(!f) return
+      Papa.parse(f, {
+        header: true,
+        dynamicTyping: false,
+        complete: (results)=>{
+          const data = results.data
+          parsedRows.value = data
+          handleParsedTable(results.meta.fields || Object.keys(data[0] || {}), data)
+        },
+        error: (err)=> console.error('PapaParse error:', err)
+      })
+    }
+
+    function onSiteCSV(e){
+      const f = fileFromInput(e)
+      if(!f) return
+      Papa.parse(f, {
+        header: true,
+        complete: (results)=>{
+          siteHeaders.value = results.meta.fields || Object.keys(results.data[0]||{})
+        },
+        error: (err)=> console.error('PapaParse site CSV error', err)
+      })
+    }
+
+    function onConcCSV(e){
+      const f = fileFromInput(e)
+      if(!f) return
+      Papa.parse(f, {
+        header: true,
+        complete: (results)=>{
+          concHeaders.value = results.meta.fields || Object.keys(results.data[0]||{})
+          const sampleRow = results.data[0] || {}
+          parsedRows.value = results.data
+          buildColumnsFromHeaders(results.meta.fields || Object.keys(sampleRow), sampleRow)
+        },
+        error: (err)=> console.error('PapaParse conc CSV error', err)
+      })
+    }
+
+    function onExcel(e){
+      const f = fileFromInput(e)
+      if(!f) return
+      const reader = new FileReader()
+      reader.onload = (ev)=>{
+        const data = new Uint8Array(ev.target.result)
+        const workbook = XLSX.read(data, {type:'array'})
+        sheets.value = workbook.SheetNames
+        selectedSheet.value = workbook.SheetNames[0]
+        parseExcelSheet(workbook, selectedSheet.value)
+      }
+      reader.onerror = (err)=> console.error('FileReader error', err)
+      reader.readAsArrayBuffer(f)
+    }
+
+    function parseExcelSheet(workbook, sheetName){
+      const ws = workbook.Sheets[sheetName]
+      const json = XLSX.utils.sheet_to_json(ws, {header:1, defval: ''})
+      let headerRowIndex = 0
+      for(let r=0;r<Math.min(10,json.length);r++){
+        const row = json[r]
+        const nonEmpty = row.filter(c=>c!=='' && c!=null).length
+        if(nonEmpty >= (row.length/2) && nonEmpty>0){ headerRowIndex = r; break }
+      }
+      const headers = json[headerRowIndex].map(h=>String(h).trim()||`col${Math.random().toString(36).slice(2,6)}`)
+      const dataRows = json.slice(headerRowIndex+1).map(r=>{
+        const obj = {}
+        headers.forEach((h,i)=> obj[h] = r[i])
+        return obj
+      })
+      parsedRows.value = dataRows
+      handleParsedTable(headers, dataRows)
+    }
+
+    function handleParsedTable(headers, data){
+      columns.splice(0, columns.length)
+      headers.forEach(h=>{
+        const sample = getColumnSample(data, h)
+        const detected = detectColumnType(h, data)
+        columns.push({name: h, sample, element:'', unit:'', method:'', description:'', datatype: detected})
+      })
+    }
+
+    function buildColumnsFromHeaders(headers, sampleRow){
+      columns.splice(0, columns.length)
+      headers.forEach(h=>{
+        const sample = sampleRow[h] || ''
+        const detected = detectColumnType(h, parsedRows.value)
+        columns.push({name: h, sample, element:'', unit:'', method:'', description:'', datatype: detected})
+      })
+    }
+
+    function getColumnSample(data, header){
+      for(const r of data){
+        if(r && r[header] !== null && r[header] !== undefined && String(r[header]).trim()!=='') return String(r[header]).slice(0,40)
+      }
+      return ''
+    }
+
+    // Detect datatype by scanning parsed rows for the given header
+    function detectColumnType(header, data){
+      if(!data || !data.length) return 'string'
+      let numericCount = 0
+      let dateCount = 0
+      let total = 0
+      const numericRe = /^[-+]?\d+(?:[\\.,]\\d+)?$/
+      for(const row of data){
+        if(!row) continue
+        const v = row[header]
+        if(v===null || v===undefined || String(v).trim()==='') continue
+        total++
+        const s = String(v).trim()
+        // numeric test (allow comma decimal)
+        if(numericRe.test(s)) numericCount++
+        else {
+          // try date parse — treat as date if Date.parse succeeds and string contains typical date separators
+          const maybe = Date.parse(s)
+          if(!Number.isNaN(maybe) && /[\/-]/.test(s)) dateCount++
+        }
+      }
+      if(total===0) return 'string'
+      // thresholds
+      if(numericCount/total >= 0.8) return 'numeric'
+      if(dateCount/total >= 0.8) return 'date'
+      return 'string'
+    }
+
+    function downloadCSVMetadata(){
+      const rows = [['name','element','unit','method','description','datatype']]
+      columns.forEach(c=> rows.push([c.name, c.element||'', c.unit||'', c.method||'', c.description||'', c.datatype||'']))
+
+      const csv = rows
+        .map(r => r.map(cell => `\"${String(cell).replace(/\"/g, '\"\"')}\"`).join(','))
+        .join('\n')
+
+      triggerDownload(csv, 'metadata.csv', 'text/csv')
+    }
+
+    function downloadTableSchema(){
+      const schema = {
+        fields: columns.map(c=>{
+          const f = {name: c.name}
+          if(c.element) f.title = c.element
+          if(c.description) f.description = c.description
+          if(c.unit) f.unit = c.unit
+          if(c.method) f.method = c.method
+          if(c.datatype) f.type = c.datatype
+          return f
+        }),
+        primaryKey: null
+      }
+      const json = JSON.stringify(schema, null, 2)
+      triggerDownload(json, 'tableschema.json', 'application/json')
+    }
+
+    function downloadCSVW(){
+      const csvw = {
+        "@context": "http://www.w3.org/ns/csvw",
+        "url": "data.csv",
+        "tableSchema": {
+          "columns": columns.map(c=>{
+            const col = {name: c.name}
+            if(c.element) col.titles = [c.element]
+            if(c.description) col.description = c.description
+            if(c.unit) col.unit = c.unit
+            if(c.method) col.method = c.method
+            if(c.datatype) col.datatype = c.datatype
+            return col
+          })
+        }
+      }
+      triggerDownload(JSON.stringify(csvw, null, 2), 'csvw.json', 'application/json')
+    }
+
+    function triggerDownload(text, filename, mime){
+      const blob = new Blob([text], {type: mime || 'text/plain'})
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    }
+
+    return {
+      mode, columns, elementSuggestions, unitSuggestions, defaultMethodList,
+      methodsForColumn, onElementChange, resetMetadata, onSingleCSV, onSiteCSV, onConcCSV, onExcel,
+      siteHeaders, concHeaders, siteIdCol, concIdCol, sheets, selectedSheet, downloadCSVMetadata, downloadTableSchema, downloadCSVW, tableHeaders, dataTypeOptions
+    }
+  }
+}
+</script>
+
+<style scoped>
+.v-application { font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; }
+/* remove extra internal padding for compactness */
+.pa-0 .v-input__control { padding-top: 0 !important; padding-bottom: 0 !important; }
+.v-data-table__td { padding:0px !important; }
+</style>
