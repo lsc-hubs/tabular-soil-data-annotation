@@ -1,10 +1,16 @@
 ## Quick start
 
+An app to annotate CSV soil observation data with relevant column metadata.
 
+View online at [lsc-hubs.github.io](http://lsc-hubs.github.io/tabular-soil-data-annotation/)
 
-1. Install dependencies
+## Deploy locally
+
+1. Clone repository and Install dependencies
 
 ```bash
+git clone http://github.com/lsc-hubs/tabular-soil-data-annotation
+cd tabular-soil-data-annotation
 npm install
 ```
 
@@ -19,11 +25,3 @@ npm run dev
 Notes:
 - The app uses papaparse for CSV parsing and xlsx (SheetJS) for Excel files.
 - Vuetify 3 is used for UI components. If you need SSR or advanced Vuetify configuration, add the recommended Vuetify setup (theme, a-la-carte imports, etc.).
-```
-
----
-
-## Next steps I can do for you
-- Add a `generate-project.sh` script that writes files directly and runs `npm install` so you can start immediately.
-- Wire the two-CSV linking to auto-merge preview and validation steps.
-- Add unit tests (Vitest) and linting (ESLint + Prettier) config.
