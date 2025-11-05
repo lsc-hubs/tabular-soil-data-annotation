@@ -8,6 +8,7 @@
         <ol class="pl-6">
         <li>Choose the input mode: single CSV, linked CSVs, or Excel workbook.</li>
         <li>Upload your CSV or Excel file(s).</li>
+        <li>If relevant, import an existing metadata file</li>
         <li>The table below lists each column in your dataset.</li>
         <li>Annotate each column with type, element, unit, method.</li>
         <li>The <strong>data type</strong> column auto-suggests string, numeric, or date based on sample values.</li>
@@ -49,6 +50,8 @@
           </v-row>
         </v-col>
 
+        
+
         <v-col cols="12" md="6" v-if="mode==='excel'">
           <v-file-input accept=".xlsx,.xls" label="Upload Excel workbook" @change="onExcel" prepend-icon="mdi-file-excel" />
           <v-select v-if="sheets.length" :items="sheets" v-model="selectedSheet" label="Select sheet" class="mt-3 pa-0" dense />
@@ -59,7 +62,15 @@
         <v-col>
           <v-card>
             <v-toolbar flat dense>
-              <v-toolbar-title>Export</v-toolbar-title>
+              <v-file-input
+                accept=".csv,.json"
+                label="Import metadata"
+                prepend-icon="mdi-file-import"
+                @change="onImportMetadata"
+                dense
+                hide-details
+                class="mx-2"
+              />
               <v-spacer />
               <v-btn color="primary" class="ml-2" @click="downloadCSVMetadata">Save as CSV</v-btn>
               <v-btn color="primary" class="ml-2" @click="downloadTableSchema">Save as tableschema</v-btn>
@@ -184,6 +195,73 @@ export default {
     }
 
     onMounted(() => loadVocabularies())
+
+    function onImportMetadata(e) {
+      const file = e?.target?.files?.[0]
+      if (!file) return
+
+      const reader = new FileReader()
+      reader.onload = ev => {
+        const text = ev.target.result
+        const fileName = file.name.toLowerCase()
+
+        try {
+          if (fileName.endsWith('.csv')) {
+            // Parse CSV metadata file
+            const parsed = Papa.parse(text, { header: true })
+            if (parsed.data && parsed.data.length) {
+              parsed.data.forEach(row => {
+                const col = columns.find(c => c.name === row.name)
+                if (col) {
+                  col.element = row.element || ''
+                  col.unit = row.unit || ''
+                  col.method = row.method || ''
+                  col.description = row.description || ''
+                  col.datatype = row.datatype || col.datatype
+                }
+              })
+            }
+          } else if (fileName.endsWith('.json')) {
+            const json = JSON.parse(text)
+
+            // TableSchema format
+            if (json.fields) {
+              json.fields.forEach(field => {
+                const col = columns.find(c => c.name === field.name)
+                if (col) {
+                  col.datatype = field.type || col.datatype
+                  col.description = field.description || ''
+                  col.unit = field.unit || ''
+                  col.method = field.method || ''
+                  col.element = field.element || ''
+                }
+              })
+            }
+
+            // CSVW format
+            if (json.tableSchema && json.tableSchema.columns) {
+              json.tableSchema.columns.forEach(field => {
+                const col = columns.find(c => c.name === field.name)
+                if (col) {
+                  col.datatype = field.datatype || col.datatype
+                  col.description = field.description || ''
+                  col.unit = field.unit || ''
+                  col.method = field.method || ''
+                  col.element = field.element || ''
+                }
+              })
+            }
+          } else {
+            alert('Unsupported file format. Please upload CSV or JSON.')
+          }
+        } catch (err) {
+          console.error('Error importing metadata:', err)
+          alert('Failed to parse metadata file.')
+        }
+      }
+      reader.readAsText(file)
+    }
+
 
     function methodsForColumn(col){
       const el = (col.element||'').toLowerCase()
@@ -405,7 +483,7 @@ export default {
     }
 
     return {
-      mode, columns, elementSuggestions, unitSuggestions, methodSuggestions,
+      mode, columns, elementSuggestions, unitSuggestions, methodSuggestions, onImportMetadata,
       methodsForColumn, onElementChange, resetMetadata, onSingleCSV, onSiteCSV, onConcCSV, onExcel,
       siteHeaders, concHeaders, siteIdCol, concIdCol, sheets, selectedSheet, downloadCSVMetadata, downloadTableSchema, downloadCSVW, tableHeaders, dataTypeOptions
     }
