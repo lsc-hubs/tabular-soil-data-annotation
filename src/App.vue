@@ -101,7 +101,7 @@
                   clearable
                   class="pa-0"
                   @update:model-value="() => onElementChange(item)"
-                  :menu-props="{ maxHeight: '260' }"
+                  :menu-props="{ maxHeight: '260',display:'none' }"
                 />
               </template>
 
@@ -110,7 +110,7 @@
               </template>
 
               <template #item.method="{ item }">
-                <v-autocomplete :items="methodsForColumn(item)" v-model="item.method" dense hide-selected clearable class="pa-0" />
+                <v-autocomplete :items="methodSuggestions" v-model="item.method" dense hide-selected clearable class="pa-0" />
               </template>
 
             </v-data-table>
@@ -129,7 +129,7 @@
 </template>
 
 <script>
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
 
@@ -150,37 +150,40 @@ export default {
     const sheets = ref([])
     const selectedSheet = ref('')
 
-    const elementSuggestions = [
-      'Nitrogen (N)', 'Phosphorus (P)', 'Potassium (K)', 'Calcium (Ca)', 'Magnesium (Mg)', 'Sulfur (S)',
-      'Organic Carbon (C)', 'Texture', 'Bulk density', 'pH', 'Electrical conductivity', 'Moisture'
-    ]
-
-    const unitSuggestions = ['mg/kg', 'ppm', '%', 'g/cm3', 'kg/m3', 'cm', 'm']
-
-    const defaultMethodList = ['Laboratory A standard', 'ISO XYZ', 'In-house method']
-    const soilMethods = ['Melich-3', 'Olsen', 'Bray-1', 'Ammonium acetate', 'DPTA']
-
+    const elementSuggestions = ref([])
+    const unitSuggestions = ref([])
+    const methodSuggestions = ref([])
+ 
     const dataTypeOptions = ['string', 'numeric', 'date']
 
     const tableHeaders = [
-      { text: 'Column', value: 'name', width: '220'},
-      { text: 'Sample', value: 'sample' },
-      { text: 'Data type', value: 'datatype' },
-      { text: 'Measured element', value: 'element' },
-      { text: 'Unit', value: 'unit' },
-      { text: 'Method', value: 'method' }
+      { title: 'Column', value: 'name', width: '220'},
+      { title: 'Sample', value: 'sample' },
+      { title: 'Data type', value: 'datatype' },
+      { title: 'Measured element', value: 'element' },
+      { title: 'Unit', value: 'unit' },
+      { title: 'Method', value: 'method' }
     ]
+
+    // load vocabularies from public/data
+    async function loadVocabularies() {
+      try {
+        const [elements] = await Promise.all([
+          fetch('/tabular-soil-data-annotation/assets/keywords.json').then(r => r.json())
+        ])
+        elementSuggestions.value = elements.properties
+        unitSuggestions.value = elements.units
+        methodSuggestions.value = elements.procedures
+      } catch (e) {
+        console.error('Failed to load vocabularies', e)
+      }
+    }
+
+    onMounted(() => loadVocabularies())
 
     function methodsForColumn(col){
       const el = (col.element||'').toLowerCase()
-      if(!el) return defaultMethodList
-      if(/\b(p|phosphorus)\b/.test(el) || /\b(k|potassium)\b/.test(el) || /\b(ca|calcium)\b/.test(el) || /\b(mg|magnesium)\b/.test(el) || /\b(s|sulfur)\b/.test(el)){
-        return soilMethods
-      }
-      if(/carbon|c\b/.test(el)){
-        return ['Walkley-Black', 'LOI', 'Elemental analyzer']
-      }
-      return defaultMethodList
+      return methodSuggestions.value
     }
 
     function onElementChange(col){
@@ -401,7 +404,7 @@ export default {
     }
 
     return {
-      mode, columns, elementSuggestions, unitSuggestions, defaultMethodList,
+      mode, columns, elementSuggestions, unitSuggestions, methodSuggestions,
       methodsForColumn, onElementChange, resetMetadata, onSingleCSV, onSiteCSV, onConcCSV, onExcel,
       siteHeaders, concHeaders, siteIdCol, concIdCol, sheets, selectedSheet, downloadCSVMetadata, downloadTableSchema, downloadCSVW, tableHeaders, dataTypeOptions
     }
@@ -409,9 +412,10 @@ export default {
 }
 </script>
 
-<style scoped>
+<style>
 .v-application { font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; }
-/* remove extra internal padding for compactness */
 .pa-0 .v-input__control { padding-top: 0 !important; padding-bottom: 0 !important; }
-.v-data-table__td { padding:0px !important; }
+.v-data-table__td { padding:0px !important; margin:0px !important; }
+.v-table > .v-table__wrapper > table > tbody > tr > td { padding: 0px 0px !important; }
+.v-input--horizontal { padding-bottom: 0px !important }
 </style>

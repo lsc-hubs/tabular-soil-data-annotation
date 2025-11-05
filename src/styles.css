@@ -1,1 +1,6 @@
 body { font-family: Inter, Arial, sans-serif; }
+
+.v-application { font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; }
+.pa-0 .v-input__control { padding-top: 0 !important; padding-bottom: 0 !important; }
+.v-data-table__td { padding:0px !important; margin:0px !important; }
+.v-table > .v-table__wrapper > table > tbody > tr > td { padding: 0px 0px !important; }
