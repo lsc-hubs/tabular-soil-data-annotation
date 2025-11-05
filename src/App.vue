@@ -14,7 +14,7 @@
         <li>The <strong>data type</strong> column auto-suggests string, numeric, or date based on sample values.</li>
         <li>Save annotated metadata as CSV, <a href="https://specs.frictionlessdata.io//table-schema/" target=_blank>TableSchema</a>, 
         or <a href="https://csvw.org" target=_blank>CSVW</a>.</li>
-        <li>Linked CSVs mode allows connecting site and observation files.</li>
+        <li>Linked CSVs mode allows connecting site and observation files, by selecting the relevant linking columns.</li>
         <li>Excel mode auto-detects the header row and sheet structure.</li>
         </ol>
         </v-alert>
@@ -37,24 +37,23 @@
         </v-col>
 
         <v-col cols="12" md="6" v-if="mode==='linked'">
-          <v-file-input accept=".csv" label="Site CSV (locations)" @change="onSiteCSV" prepend-icon="mdi-database" />
-          <v-file-input accept=".csv" label="Concentration CSV" @change="onConcCSV" prepend-icon="mdi-database" class="mt-3" />
+          <v-file-input accept=".csv" label="Sites (locations)" @change="onSiteCSV" prepend-icon="mdi-database" />
+          <v-file-input accept=".csv" label="Observations" @change="onConcCSV" prepend-icon="mdi-database" class="mt-3" />
 
           <v-row v-if="siteHeaders.length && concHeaders.length" class="mt-3">
+            <h4>Select relevant columns to link the tables</h4>
             <v-col cols="6">
-              <v-select :items="siteHeaders" v-model="siteIdCol" label="Site ID column (site CSV)" dense class="pa-0" />
+              <v-select :items="siteHeaders" v-model="siteIdCol" label="ID column (sites)" dense class="pa-0" />
             </v-col>
             <v-col cols="6">
-              <v-select :items="concHeaders" v-model="concIdCol" label="Conc ID column (conc CSV)" dense class="pa-0" />
+              <v-select :items="concHeaders" v-model="concIdCol" label="Foreign key column (observations)" dense class="pa-0" />
             </v-col>
           </v-row>
         </v-col>
 
-        
-
         <v-col cols="12" md="6" v-if="mode==='excel'">
           <v-file-input accept=".xlsx,.xls" label="Upload Excel workbook" @change="onExcel" prepend-icon="mdi-file-excel" />
-          <v-select v-if="sheets.length" :items="sheets" v-model="selectedSheet" label="Select sheet" class="mt-3 pa-0" dense />
+          <v-select v-if="sheets.length" :items="sheets" v-model="selectedSheet" label="Select sheet" class="mt-3 pa-0" dense @update:modelValue="onExcelSheet" />
         </v-col>
       </v-row>
 
@@ -163,6 +162,7 @@ export default {
     const concIdCol = ref('')
 
     const sheets = ref([])
+    const workbook = ref([])
     const selectedSheet = ref('')
 
     const elementSuggestions = ref([])
@@ -338,16 +338,21 @@ export default {
       })
     }
 
+    function onExcelSheet(e){
+      console.log('foo')
+      parseExcelSheet(workbook.value, selectedSheet.value)
+    }
+
     function onExcel(e){
       const f = fileFromInput(e)
       if(!f) return
       const reader = new FileReader()
       reader.onload = (ev)=>{
         const data = new Uint8Array(ev.target.result)
-        const workbook = XLSX.read(data, {type:'array'})
-        sheets.value = workbook.SheetNames
-        selectedSheet.value = workbook.SheetNames[0]
-        parseExcelSheet(workbook, selectedSheet.value)
+        workbook.value = XLSX.read(data, {type:'array'})
+        sheets.value = workbook.value.SheetNames
+        selectedSheet.value = workbook.value.SheetNames[0]
+        parseExcelSheet(workbook.value, selectedSheet.value)
       }
       reader.onerror = (err)=> console.error('FileReader error', err)
       reader.readAsArrayBuffer(f)
@@ -484,7 +489,7 @@ export default {
 
     return {
       mode, columns, elementSuggestions, unitSuggestions, methodSuggestions, onImportMetadata,
-      methodsForColumn, onElementChange, resetMetadata, onSingleCSV, onSiteCSV, onConcCSV, onExcel,
+      methodsForColumn, onElementChange, resetMetadata, onSingleCSV, onSiteCSV, onConcCSV, onExcel, onExcelSheet, workbook,
       siteHeaders, concHeaders, siteIdCol, concIdCol, sheets, selectedSheet, downloadCSVMetadata, downloadTableSchema, downloadCSVW, tableHeaders, dataTypeOptions
     }
   }
