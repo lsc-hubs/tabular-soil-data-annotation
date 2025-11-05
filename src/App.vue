@@ -2,24 +2,23 @@
   <v-app>
     <v-container class="pa-6" max-width="1200">
       <v-row>
-<v-col>
-<h1 class="text-h5 mb-4">Tabular Soil Data Annotation</h1>
-<v-alert type="info" class="mb-6" dense>
-<ol class="pl-6">
-<li>Choose the input mode: single CSV, linked CSVs, or Excel workbook.</li>
-<li>Upload your CSV or Excel file(s).</li>
-<li>The table below lists each column in your dataset.</li>
-<li>Annotate each column with element, unit, method, and description.</li>
-<li>The <strong>data type</strong> column auto-suggests string, numeric, or date based on sample values.</li>
-<li>You can edit the data type if needed using the dropdown.</li>
-<li>Use the reset button to clear annotations.</li>
-<li>Save annotated metadata as CSV, TableSchema JSON, or CSVW JSON.</li>
-<li>Linked CSVs mode allows connecting site and observation files.</li>
-<li>Excel mode auto-detects the header row and sheet structure.</li>
-</ol>
-</v-alert>
-</v-col>
-</v-row>
+        <v-col>
+        <h1 class="text-h5 mb-4">Tabular Soil Data Annotation</h1>
+        <v-alert type="info" class="mb-6" dense>
+        <ol class="pl-6">
+        <li>Choose the input mode: single CSV, linked CSVs, or Excel workbook.</li>
+        <li>Upload your CSV or Excel file(s).</li>
+        <li>The table below lists each column in your dataset.</li>
+        <li>Annotate each column with type, element, unit, method.</li>
+        <li>The <strong>data type</strong> column auto-suggests string, numeric, or date based on sample values.</li>
+        <li>Save annotated metadata as CSV, <a href="https://specs.frictionlessdata.io//table-schema/" target=_blank>TableSchema</a>, 
+        or <a href="https://csvw.org" target=_blank>CSVW</a>.</li>
+        <li>Linked CSVs mode allows connecting site and observation files.</li>
+        <li>Excel mode auto-detects the header row and sheet structure.</li>
+        </ol>
+        </v-alert>
+        </v-col>
+      </v-row>
 
       <v-row class="mb-4">
         <v-col cols="12" md="6">
@@ -62,9 +61,9 @@
             <v-toolbar flat dense>
               <v-toolbar-title>Export</v-toolbar-title>
               <v-spacer />
-              <v-btn color="primary" class="ml-2" @click="downloadCSVMetadata">Save CSV</v-btn>
-              <v-btn color="primary" class="ml-2" @click="downloadTableSchema">Save tableschema.json</v-btn>
-              <v-btn color="primary" class="ml-2" @click="downloadCSVW">Save CSVW JSON</v-btn>
+              <v-btn color="primary" class="ml-2" @click="downloadCSVMetadata">Save as CSV</v-btn>
+              <v-btn color="primary" class="ml-2" @click="downloadTableSchema">Save as tableschema</v-btn>
+              <v-btn color="primary" class="ml-2" @click="downloadCSVW">Save as CSVW</v-btn>
             </v-toolbar>
           </v-card>
         </v-col>
@@ -86,31 +85,36 @@
                 <v-select
                   :items="dataTypeOptions"
                   v-model="item.datatype"
-                  dense
+                  density="compact"
                   hide-details
-                  class="pa-0"
                 />
               </template>
 
               <template #item.element="{ item }">
-                <v-autocomplete
+                <v-combobox
                   :items="elementSuggestions"
                   v-model="item.element"
-                  dense
-                  hide-selected
-                  clearable
-                  class="pa-0"
-                  @update:model-value="() => onElementChange(item)"
-                  :menu-props="{ maxHeight: '260',display:'none' }"
+                  density="compact"
+                  hide-details
                 />
               </template>
 
               <template #item.unit="{ item }">
-                <v-autocomplete :items="unitSuggestions" v-model="item.unit" dense hide-selected clearable class="pa-0" />
+                <v-combobox
+                  :items="unitSuggestions"
+                  v-model="item.unit"
+                  density="compact"
+                  hide-details
+                />
               </template>
 
               <template #item.method="{ item }">
-                <v-autocomplete :items="methodSuggestions" v-model="item.method" dense hide-selected clearable class="pa-0" />
+                <v-combobox
+                  :items="methodSuggestions"
+                  v-model="item.method"
+                  density="compact"
+                  hide-details
+                />
               </template>
 
             </v-data-table>
@@ -201,7 +205,6 @@ export default {
         c.element = ''
         c.unit = ''
         c.method = ''
-        c.description = ''
         c.datatype = 'string'
       })
     }
@@ -296,7 +299,7 @@ export default {
       headers.forEach(h=>{
         const sample = getColumnSample(data, h)
         const detected = detectColumnType(h, data)
-        columns.push({name: h, sample, element:'', unit:'', method:'', description:'', datatype: detected})
+        columns.push({name: h, sample, element:'', unit:'', method:'', datatype: detected})
       })
     }
 
@@ -305,7 +308,7 @@ export default {
       headers.forEach(h=>{
         const sample = sampleRow[h] || ''
         const detected = detectColumnType(h, parsedRows.value)
-        columns.push({name: h, sample, element:'', unit:'', method:'', description:'', datatype: detected})
+        columns.push({name: h, sample, element:'', unit:'', method:'', datatype: detected})
       })
     }
 
@@ -345,8 +348,8 @@ export default {
     }
 
     function downloadCSVMetadata(){
-      const rows = [['name','element','unit','method','description','datatype']]
-      columns.forEach(c=> rows.push([c.name, c.element||'', c.unit||'', c.method||'', c.description||'', c.datatype||'']))
+      const rows = [['name','element','unit','method','datatype']]
+      columns.forEach(c=> rows.push([c.name, c.element||'', c.unit||'', c.method||'', c.datatype||'']))
 
       const csv = rows
         .map(r => r.map(cell => `\"${String(cell).replace(/\"/g, '\"\"')}\"`).join(','))
@@ -360,7 +363,6 @@ export default {
         fields: columns.map(c=>{
           const f = {name: c.name}
           if(c.element) f.title = c.element
-          if(c.description) f.description = c.description
           if(c.unit) f.unit = c.unit
           if(c.method) f.method = c.method
           if(c.datatype) f.type = c.datatype
@@ -380,7 +382,6 @@ export default {
           "columns": columns.map(c=>{
             const col = {name: c.name}
             if(c.element) col.titles = [c.element]
-            if(c.description) col.description = c.description
             if(c.unit) col.unit = c.unit
             if(c.method) col.method = c.method
             if(c.datatype) col.datatype = c.datatype
