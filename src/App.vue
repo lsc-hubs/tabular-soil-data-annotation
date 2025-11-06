@@ -57,6 +57,33 @@
         </v-col>
       </v-row>
 
+      <!-- Preview of uploaded data -->
+      <v-row v-if="previewHeaders.length && previewRows.length" class="mt-6">
+        <v-col>
+          <v-card>
+            <v-card-title>
+              <span class="text-h6">Data preview</span>
+              <v-spacer />
+              <small class="mr-3">Showing first {{ previewRows.length }} rows</small>
+            </v-card-title>
+
+            <v-data-table
+              :headers="previewHeaders"
+              :items="previewRows"
+              dense
+              :items-per-page="5"
+              class="elevation-0"
+              hide-default-footer
+            >
+              <!-- render each preview cell using the header value -->
+              <template v-for="h in previewHeaders" #[`item.${h.value}`]="{ item }">
+                <span>{{ formatCell(item[h.value]) }}</span>
+              </template>
+            </v-data-table>
+          </v-card>
+        </v-col>
+      </v-row>
+
       <v-row v-if="columns.length" class="mt-6">
         <v-col>
           <v-card>
@@ -85,10 +112,6 @@
 
               <template #item.name="{ item }">
                 <div class="font-weight-medium">{{ item.name }}</div>
-              </template>
-
-              <template #item.sample="{ item }">
-                <div><small>{{ item.sample }}</small></div>
               </template>
 
               <template #item.datatype="{ item }">
@@ -154,7 +177,15 @@ export default {
     const columns = reactive([])
 
     // keep the parsed data rows for datatype detection
-    const parsedRows = ref([])
+    // preview state for uploaded data
+    const parsedHeaders = ref([])   // array of header names (strings)
+    const parsedRows = ref([])      // array of row objects (first N rows for preview)
+
+    function previewHeadersFor(parsed) {
+      return parsed.map(h => ({ title: h, value: h }))
+    }
+    const previewHeaders = ref([])
+    const previewRows = ref([])
 
     const siteHeaders = ref([])
     const concHeaders = ref([])
@@ -173,7 +204,6 @@ export default {
 
     const tableHeaders = [
       { title: 'Column', value: 'name', width: '220'},
-      { title: 'Sample', value: 'sample' },
       { title: 'Data type', value: 'datatype' },
       { title: 'Measured element', value: 'element' },
       { title: 'Unit', value: 'unit' },
@@ -195,6 +225,8 @@ export default {
     }
 
     onMounted(() => loadVocabularies())
+    
+    function formatCell(v) { return v === null || v === undefined ? '' : String(v) }
 
     function onImportMetadata(e) {
       const file = e?.target?.files?.[0]
@@ -302,10 +334,13 @@ export default {
       Papa.parse(f, {
         header: true,
         dynamicTyping: false,
-        complete: (results)=>{
-          const data = results.data
-          parsedRows.value = data
-          handleParsedTable(results.meta.fields || Object.keys(data[0] || {}), data)
+        complete: (results) => {
+          const { data, meta } = results
+          parsedHeaders.value = meta.fields || Object.keys(data[0] || {})
+          parsedRows.value = data.slice(0, 5) // keep first 5 rows for preview
+          previewHeaders.value = previewHeadersFor(parsedHeaders.value)
+          previewRows.value = parsedRows.value
+          handleParsedTable(parsedHeaders.value, data)
         },
         error: (err)=> console.error('PapaParse error:', err)
       })
@@ -328,11 +363,15 @@ export default {
       if(!f) return
       Papa.parse(f, {
         header: true,
-        complete: (results)=>{
+        complete: (results) => {
+          const { data, meta } = results
           concHeaders.value = results.meta.fields || Object.keys(results.data[0]||{})
-          const sampleRow = results.data[0] || {}
-          parsedRows.value = results.data
-          buildColumnsFromHeaders(results.meta.fields || Object.keys(sampleRow), sampleRow)
+          parsedHeaders.value = meta.fields || Object.keys(data[0] || {})
+          parsedRows.value = data.slice(0, 5) // keep first 5 rows for preview
+          previewHeaders.value = previewHeadersFor(parsedHeaders.value)
+          previewRows.value = parsedRows.value
+          handleParsedTable(parsedHeaders.value, data)
+          buildColumnsFromHeaders(meta.fields)
         },
         error: (err)=> console.error('PapaParse conc CSV error', err)
       })
@@ -373,33 +412,27 @@ export default {
         headers.forEach((h,i)=> obj[h] = r[i])
         return obj
       })
-      parsedRows.value = dataRows
+      parsedHeaders.value = headers
+      parsedRows.value = dataRows.slice(0, 5)
+      previewHeaders.value = previewHeadersFor(parsedHeaders.value)
+      previewRows.value = parsedRows.value
       handleParsedTable(headers, dataRows)
     }
 
     function handleParsedTable(headers, data){
       columns.splice(0, columns.length)
       headers.forEach(h=>{
-        const sample = getColumnSample(data, h)
         const detected = detectColumnType(h, data)
-        columns.push({name: h, sample, element:'', unit:'', method:'', datatype: detected})
+        columns.push({name: h, element:'', unit:'', method:'', datatype: detected})
       })
     }
 
-    function buildColumnsFromHeaders(headers, sampleRow){
+    function buildColumnsFromHeaders(headers){
       columns.splice(0, columns.length)
       headers.forEach(h=>{
-        const sample = sampleRow[h] || ''
         const detected = detectColumnType(h, parsedRows.value)
-        columns.push({name: h, sample, element:'', unit:'', method:'', datatype: detected})
+        columns.push({name: h, element:'', unit:'', method:'', datatype: detected})
       })
-    }
-
-    function getColumnSample(data, header){
-      for(const r of data){
-        if(r && r[header] !== null && r[header] !== undefined && String(r[header]).trim()!=='') return String(r[header]).slice(0,40)
-      }
-      return ''
     }
 
     // Detect datatype by scanning parsed rows for the given header
@@ -488,7 +521,7 @@ export default {
     }
 
     return {
-      mode, columns, elementSuggestions, unitSuggestions, methodSuggestions, onImportMetadata,
+      mode, columns, elementSuggestions, unitSuggestions, methodSuggestions, onImportMetadata, previewHeaders, previewRows, previewHeadersFor, formatCell,
       methodsForColumn, onElementChange, resetMetadata, onSingleCSV, onSiteCSV, onConcCSV, onExcel, onExcelSheet, workbook,
       siteHeaders, concHeaders, siteIdCol, concIdCol, sheets, selectedSheet, downloadCSVMetadata, downloadTableSchema, downloadCSVW, tableHeaders, dataTypeOptions
     }
@@ -502,4 +535,5 @@ export default {
 .v-data-table__td { padding:0px !important; margin:0px !important; }
 .v-table > .v-table__wrapper > table > tbody > tr > td { padding: 0px 0px !important; }
 .v-input--horizontal { padding-bottom: 0px !important }
+.v-data-table-header__content { padding-left: 5px; font-weight: bold }
 </style>
